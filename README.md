@@ -44,6 +44,7 @@ Saves, Steam Cloud and achievements are untouched. To uninstall, delete the mod 
 | `scripts/` | fetch the reference assemblies, build and package |
 | `tools/mdinfo` | the Mono/IL inspector used to find every hook point |
 | `docs/PORTING-NOTES.md` | how the port works and why each patch exists |
+| `docs/HANDHELD-NOTES.md` | running this under Steam + Proton on an ARM64 handheld |
 
 ## Credits and license
 
