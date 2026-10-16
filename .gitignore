@@ -1,0 +1,26 @@
+# build outputs
+bin/
+obj/
+dist/
+*.zip
+*.user
+
+# game and third party binaries. never commit these: Celeste's own assemblies are
+# proprietary and the rest come from an install you supply yourself.
+libs/
+*.exe
+*.dll
+*.pdb
+*.so
+*.dylib
+
+# logs and dumps
+log*.txt
+*.log
+
+# os / ide artifacts
+.DS_Store
+Thumbs.db
+.vs/
+.vscode/
+.idea/

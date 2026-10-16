@@ -1,0 +1,9 @@
+# normalise line endings, keep the output zip readable as an archive
+* text=auto eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.dll binary
+*.zip binary

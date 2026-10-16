@@ -1,0 +1,6 @@
+- Name: CelesteFit
+  Version: 1.0.0
+  DLL: bin/CelesteFit.dll
+  Dependencies:
+    - Name: Everest
+      Version: 1.0.0

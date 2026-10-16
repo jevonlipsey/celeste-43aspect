@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net472</TargetFramework>
+        <AssemblyName>CelesteFit</AssemblyName>
+        <RootNamespace>Celeste.Mod.CelesteFit</RootNamespace>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <OutputPath>..\bin</OutputPath>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <CelestePrefix Condition="'$(CelestePrefix)' == '' And Exists('..\..\..\Celeste.dll')">..\..\..</CelestePrefix>
+        <CelestePrefix Condition="'$(CelestePrefix)' == '' And Exists('..\..\Celeste.dll')">..\..</CelestePrefix>
+        <CelestePrefix Condition="'$(CelestePrefix)' == ''">..\libs</CelestePrefix>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="Celeste">
+            <HintPath>$(CelestePrefix)\Celeste.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Celeste.Mod.mm">
+            <HintPath>$(CelestePrefix)\Celeste.Mod.mm.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="FNA">
+            <HintPath>$(CelestePrefix)\FNA.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="MonoMod.RuntimeDetour">
+            <HintPath>$(CelestePrefix)\MonoMod.RuntimeDetour.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="MonoMod.Utils">
+            <HintPath>$(CelestePrefix)\MonoMod.Utils.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Mono.Cecil">
+            <HintPath>$(CelestePrefix)\Mono.Cecil.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>
