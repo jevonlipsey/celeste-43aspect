@@ -78,24 +78,35 @@ echo "ok: everest.yaml is $old -> $VERSION and the dll is packaged"
 
 ### publish
 
+if [ "$old" = "$VERSION" ]; then
+    echo "everest.yaml already says $VERSION, so there is nothing to bump -"
+    echo "tagging the current commit instead."
+else
+    if ! git commit -q -am "release: CelesteFit $VERSION"; then
+        echo 'could not commit the version bump'
+        git checkout -- everest.yaml
+        exit 1
+    fi
+    echo "committed the version bump $old -> $VERSION"
+fi
+
 if [ "$DRY_RUN" = '--dry-run' ]; then
     git checkout -- everest.yaml
-    cat <<EOF
-
-dry run, nothing published. the real thing would run:
-
-  git commit -am 'release: CelesteFit $VERSION'
-  git push origin main
-  git tag $TAG && git push origin $TAG
-  gh release create $TAG dist/CelesteFit.zip \\
-      --title 'CelesteFit $VERSION' --generate-notes
-
-dist/CelesteFit.zip is left in place for inspection.
-EOF
+    {
+        echo
+        echo 'dry run, nothing published. the real thing would run:'
+        echo
+        [ "$old" = "$VERSION" ] || echo "  git commit -am 'release: CelesteFit $VERSION'"
+        echo '  git push origin main'
+        echo "  git tag $TAG && git push origin $TAG"
+        echo "  gh release create $TAG dist/CelesteFit.zip \\"
+        echo "      --title 'CelesteFit $VERSION' --generate-notes"
+        echo
+        echo 'dist/CelesteFit.zip is left in place for inspection.'
+    }
     exit 0
 fi
 
-git commit -q -am "release: CelesteFit $VERSION"
 git push origin main
 git tag "$TAG"
 git push origin "$TAG"
