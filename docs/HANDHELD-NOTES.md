@@ -1,5 +1,7 @@
 # Handheld and Proton ARM notes
 
+> These notes are kept here because they explain why this mod's hooks look the way they do. The general version, for any Celeste mod on this stack, lives in [celeste-proton-arm64](https://github.com/jevonlipsey/celeste-proton-arm64) — start there if Everest itself will not boot.
+
 CelesteFit was developed against a Windows Celeste install running under Steam + Proton on an ARM64 Android handheld (DroidDeck-style device, Adreno 740, FEX/box64 translation, Wine-Mono runtime). These are the things that bit us there; none of them are CelesteFit bugs, but all of them look like one from the outside.
 
 ## Requirements on the device

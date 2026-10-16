@@ -20,6 +20,8 @@ CelesteFit is an [Everest](https://everestapi.github.io/) mod that expands Celes
 | Loader      | Everest 1.4.x (tested on Stable Build 4449)                                                             |
 | Display     | A 4:3 screen. 1280×960 tested on a Retroid Pocket Nova through DroidDeck.                               |
 
+On an ARM handheld that runs Celeste through Steam + Proton, the loader itself needs a consistent MonoMod/Cecil file set before any mod can load. If Everest will not boot, see [celeste-proton-arm64](https://github.com/jevonlipsey/celeste-proton-arm64) first: the symptoms look exactly like a broken mod, and are not.
+
 ## Install
 
 1. Install Everest on your Celeste installation.
