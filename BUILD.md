@@ -49,3 +49,14 @@ dotnet build Source/CelesteFit.csproj -c Release -p:CelestePrefix=/path/to/Celes
 Copy `dist/CelesteFit.zip` into `Celeste/Mods/` and start the game. The mod log is in `log.txt` next to the executable; the mod logs `[CelesteFit]` lines, one per phase, plus one `room camera:` line per room.
 
 Starting a room should report `= 240px at zoom 1.0` (at 1280×960 output). If it reports 180, the camera viewport patch did not apply and tiles will be culled below a fixed line in the world.
+
+## 4. Releasing
+
+```bash
+scripts/release.sh 1.0.1 --dry-run   # bump, build, verify, publish nothing
+scripts/release.sh 1.0.1             # tag and publish
+```
+
+The script refuses to run from a dirty tree or a branch other than `main`, bumps `Version:` in `everest.yaml`, builds and packages the zip, verifies the zip really carries the new version and `bin/CelesteFit.dll`, then commits, tags `v1.0.1`, pushes, and publishes `dist/CelesteFit.zip` as the release asset with generated notes.
+
+The asset is always named `CelesteFit.zip`, so `releases/latest/download/CelesteFit.zip` in the README keeps resolving across releases without being edited.

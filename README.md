@@ -25,7 +25,7 @@ On an ARM handheld that runs Celeste through Steam + Proton, Everest needs a pat
 ## Install
 
 1. Install Everest on your Celeste installation.
-2. Download `CelesteFit.zip` from [Releases](../../releases) — or build it yourself, see [BUILD.md](BUILD.md).
+2. Download [CelesteFit.zip](../../releases/latest/download/CelesteFit.zip) — or see [Releases](../../releases) for older versions, or build it yourself, see [BUILD.md](BUILD.md).
 3. Drop the zip into `Celeste/Mods/` and launch the game. Everest installs it on startup; no "install missing dependencies" step is needed.
 
 Saves, Steam Cloud and achievements are untouched. To uninstall, delete the mod from the Everest mod list (or the zip from `Mods/`).
