@@ -1,6 +1,6 @@
 # CelesteFit
 
-**Full-screen 4:3 Celeste on PC, with the original pixel proportions.**
+**4:3 Celeste on PC, with original pixel proportions.**
 
 CelesteFit is an [Everest](https://everestapi.github.io/) mod that expands Celeste's vertical view so a 4:3 (or any taller-than-16:9) display is filled without stretching, letterboxing or cropping. It is a port of the 4:3 patching work in [Celeste Fit](https://github.com/mikumaker/Celeste-Fit), which targets the Android runtime, re-implemented as runtime IL hooks so it works with Steam, cloud saves and other Everest mods.
 
@@ -14,11 +14,11 @@ CelesteFit is an [Everest](https://everestapi.github.io/) mod that expands Celes
 
 ## Requirements
 
-| Requirement | Details |
-| --- | --- |
-| Game | Celeste 1.4.0.0, **FNA** branch (Steam → properties → betas → `beta 1.3.3.0`, or the itch.io FNA build) |
-| Loader | Everest 1.4.x (tested on 4449) |
-| Display | A landscape screen taller than 16:9. 1280×960 tested on a Retroid Pocket Nova and a DroidDeck handheld |
+| Requirement | Details                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------- |
+| Game        | Celeste 1.4.0.0, **FNA** branch (Steam → properties → betas → `beta 1.3.3.0`, or the itch.io FNA build) |
+| Loader      | Everest 1.4.x (tested on Stable Build 4449)                                                             |
+| Display     | A 4:3 screen. 1280×960 tested on a Retroid Pocket Nova through DroidDeck.                               |
 
 ## Install
 
@@ -36,15 +36,15 @@ Saves, Steam Cloud and achievements are untouched. To uninstall, delete the mod 
 
 ## Layout
 
-| Path | Purpose |
-| --- | --- |
-| `Source/CelesteFitModule.cs` | the whole mod: every hook, in ten steps |
-| `Source/CelesteFit.csproj` | `net472` build, references assembled from `libs/` |
-| `libs/` | your own game assemblies, git-ignored, see [BUILD.md](BUILD.md) |
-| `scripts/` | fetch the reference assemblies, build and package |
-| `tools/mdinfo` | the Mono/IL inspector used to find every hook point |
-| `docs/PORTING-NOTES.md` | how the port works and why each patch exists |
-| `docs/HANDHELD-NOTES.md` | running this under Steam + Proton on an ARM64 handheld |
+| Path                         | Purpose                                                         |
+| ---------------------------- | --------------------------------------------------------------- |
+| `Source/CelesteFitModule.cs` | the whole mod: every hook, in ten steps                         |
+| `Source/CelesteFit.csproj`   | `net472` build, references assembled from `libs/`               |
+| `libs/`                      | your own game assemblies, git-ignored, see [BUILD.md](BUILD.md) |
+| `scripts/`                   | fetch the reference assemblies, build and package               |
+| `tools/mdinfo`               | the Mono/IL inspector used to find every hook point             |
+| `docs/PORTING-NOTES.md`      | how the port works and why each patch exists                    |
+| `docs/HANDHELD-NOTES.md`     | running this under Steam + Proton on an ARM64 handheld          |
 
 ## Credits and license
 
