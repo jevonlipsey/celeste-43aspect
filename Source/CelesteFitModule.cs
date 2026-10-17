@@ -98,6 +98,11 @@ public class CelesteFitModule : EverestModule {
         HookMethod(typeof(FallWipe), "Render", il => ReplaceConstant(il, 2160f, () => Engine.Height * 2f, () => Engine.Height * 2));
         HookMethod(typeof(OuiTitleScreen), "Render", il => ReplaceConstant(il, 1100f, () => Engine.Height + 20f, () => Engine.Height + 20));
 
+        // 7b. the damage flash rect is the old 320x180 design size with a 2px bleed, leaving the
+        // bottom of the taller gameplay buffer unlit while the flash is up
+        Step("level flash");
+        HookMethod(typeof(Level), "Render", il => ReplaceConstant(il, 182f, () => GameHeight + 2f, () => GameHeight + 2));
+
         // 8. Hook Culling checks
         Step("culling");
         HookMethod(typeof(Level), "IsInCamera", PatchCulling);
@@ -298,16 +303,19 @@ public class CelesteFitModule : EverestModule {
     /// replacement has to emit whatever type the original instruction pushed.
     private static void ReplaceConstant(ILContext il, float original, Func<float> asFloat, Func<int> asInt) {
         var cursor = new ILCursor(il);
+        int replaced = 0;
         while (cursor.TryGotoNext(i => (i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - original) < 0.01f)
                                     || (i.OpCode == OpCodes.Ldc_I4 && (int)i.Operand == (int)original))) {
             bool isFloat = cursor.Next.OpCode == OpCodes.Ldc_R4;
             cursor.Remove();
+            replaced++;
             if (isFloat) {
                 cursor.EmitDelegate(asFloat);
             } else {
                 cursor.EmitDelegate(asInt);
             }
         }
+        if (replaced > 0) LogReplacements(il, replaced);
     }
 
     private static void PatchCulling(ILContext il) {
@@ -340,32 +348,61 @@ public class CelesteFitModule : EverestModule {
             typeof(GameplayBuffers), typeof(GameplayRenderer), typeof(Snow),
             typeof(Starfield), typeof(StarsBG), typeof(DreamStars), typeof(HeatWave),
             typeof(StardustFG), typeof(CoreStarsFG), typeof(ReflectionFG), typeof(MirrorFG),
-            typeof(NorthernLights), typeof(BlackholeBG), typeof(GlassBlockBg),
-            typeof(StarJumpController), typeof(MirrorSurfaces)
+            typeof(NorthernLights), typeof(BlackholeBG), typeof(GlassBlockBg), typeof(FallEffects),
+            typeof(StarJumpController), typeof(MirrorSurfaces), typeof(WindSnowFG), typeof(RainFG)
+        };
+
+        // these effects bake the 320x180 view into fields inside their constructors, which
+        // GetMethods() never enumerates, so their ctors get the same constant swap explicitly
+        var ctorTypes = new[] {
+            typeof(Starfield), typeof(NorthernLights), typeof(GlassBlockBg), typeof(FallEffects)
         };
 
         foreach (var type in lowTypes) {
             Logger.Log(LogLevel.Info, "CelesteFit", $"--- low: {type.Name}");
             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)) {
                 if (method.DeclaringType != type || method.IsAbstract) continue;
-                Instance.HookMethod(type, method.Name, il => {
-                    var cursor = new ILCursor(il);
-                    while (cursor.TryGotoNext(i => (i.OpCode == OpCodes.Ldc_I4 && (int)i.Operand == 180)
-                                                || (i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - 180f) < 0.01f))) {
-                        bool isFloat = cursor.Next.OpCode == OpCodes.Ldc_R4;
-                        cursor.Remove();
-                        if (isFloat) cursor.EmitDelegate<Func<float>>(() => (float)GameHeight);
-                        else cursor.EmitDelegate<Func<int>>(() => GameHeight);
-                    }
-                    if (type == typeof(GameplayBuffers)) {
-                        cursor.Index = 0;
-                        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_I4 && (int)i.Operand == 244)) {
-                            cursor.Remove();
-                            cursor.EmitDelegate<Func<int>>(() => GameHeight + 64);
-                        }
-                    }
-                });
+                Instance.HookMethod(type, method.Name, PatchLowScreenConstants);
             }
+            if (Array.IndexOf(ctorTypes, type) < 0) continue;
+            if (type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance).Length > 0) {
+                Instance.HookMethod(type, ".ctor", PatchLowScreenConstants);
+            }
+            if (type.TypeInitializer != null) {
+                Instance.HookMethod(type, ".cctor", PatchLowScreenConstants);
+            }
+        }
+    }
+
+    private static void PatchLowScreenConstants(ILContext il) {
+        var cursor = new ILCursor(il);
+        int replaced = 0;
+        while (cursor.TryGotoNext(i => (i.OpCode == OpCodes.Ldc_I4 && (int)i.Operand == 180)
+                                    || (i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - 180f) < 0.01f))) {
+            bool isFloat = cursor.Next.OpCode == OpCodes.Ldc_R4;
+            cursor.Remove();
+            replaced++;
+            if (isFloat) cursor.EmitDelegate<Func<float>>(() => (float)GameHeight);
+            else cursor.EmitDelegate<Func<int>>(() => GameHeight);
+        }
+        if (il.Method.DeclaringType?.FullName == typeof(GameplayBuffers).FullName) {
+            cursor.Index = 0;
+            while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_I4 && (int)i.Operand == 244)) {
+                cursor.Remove();
+                replaced++;
+                cursor.EmitDelegate<Func<int>>(() => GameHeight + 64);
+            }
+        }
+        if (replaced > 0) LogReplacements(il, replaced);
+    }
+
+    // the device log is the only way to prove a runtime il rewrite actually applied, so every
+    // touched method gets one load-time log line listing how many constants were rewritten
+    private static void LogReplacements(ILContext il, int count) {
+        try {
+            Logger.Log(LogLevel.Info, "CelesteFit", $"rewrote {count} screen constants in {il.Method?.FullName ?? "?"}");
+        } catch {
+            // logging must never break a hook
         }
     }
 
@@ -387,6 +424,9 @@ public class CelesteFitModule : EverestModule {
             typeof(CurtainWipe), typeof(KeyDoorWipe), typeof(AngledWipe), typeof(DropWipe),
             typeof(FallWipe), typeof(StarfieldWipe), typeof(DreamWipe), typeof(WindWipe),
             typeof(MountainWipe),
+            // the wave-dash tutorial, chapter end screens and the leftover wipes are full screen too
+            typeof(SpotlightWipe), typeof(WaveDashPresentation), typeof(GameplayStats),
+            typeof(MemorialText), typeof(PreviewRecording),
             // only listed for their nested screen-space overlays
             typeof(Cassette), typeof(Lookout),
             // everest's own menus and overlays
@@ -432,10 +472,12 @@ public class CelesteFitModule : EverestModule {
     /// int in some methods and a float in others, so emit whichever the original pushed.
     private static void PatchUIScreenConstants(ILContext il) {
         var cursor = new ILCursor(il);
+        int replaced = 0;
         while (cursor.TryGotoNext(IsScreenConstant)) {
             bool isFloat = cursor.Next.OpCode == OpCodes.Ldc_R4;
             int val = isFloat ? (int)(float)cursor.Next.Operand : (int)cursor.Next.Operand;
             cursor.Remove();
+            replaced++;
             if (val == 540) {
                 if (isFloat) cursor.EmitDelegate<Func<float>>(() => Engine.Height / 2f);
                 else cursor.EmitDelegate<Func<int>>(() => Engine.Height / 2);
@@ -451,6 +493,7 @@ public class CelesteFitModule : EverestModule {
                 else cursor.EmitDelegate<Func<int>>(() => Engine.Height + 20);
             }
         }
+        if (replaced > 0) LogReplacements(il, replaced);
     }
 
     private static bool IsScreenConstant(Instruction i) {
