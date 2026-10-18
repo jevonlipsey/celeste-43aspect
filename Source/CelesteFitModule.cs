@@ -272,16 +272,6 @@ public class CelesteFitModule : EverestModule {
     private static void PatchParallaxRender(ILContext il) {
         // non-looping backgrounds tile at a 180px stride; grow it to the 4:3 height
         ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight);
-        var cursor = new ILCursor(il);
-        if (cursor.TryGotoNext(MoveType.After, i => i.OpCode == OpCodes.Stloc_1)) {
-            // no camera shift
-        }
-
-        cursor.Index = 0;
-        while (cursor.TryGotoNext(i => i.MatchLdfld<Backdrop>("LoopY"))) {
-            cursor.Remove();
-            cursor.EmitDelegate<Func<Backdrop, bool>>(backdrop => false);
-        }
     }
 
     private static void PatchMountainRendererRender(ILContext il) {
