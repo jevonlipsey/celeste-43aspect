@@ -130,10 +130,8 @@ public class CelesteFitModule : EverestModule {
             });
         });
 
-        // 7e. target center, lighting bloom, camera bounds, and zoom use the old 180/1080 design size
-        // DISABLED: caused boot failure. Re-enable one at a time.
-        /*
-        Step("target center + bloom + bounds");
+        // 7e. target center (fixes UI elements stuck in 16:9 middle)
+        Step("target center");
         HookMethod(typeof(Celeste), "get_TargetCenter", il => {
             var cursor = new ILCursor(il);
             while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - 1080f) < 0.01f)) {
@@ -141,13 +139,6 @@ public class CelesteFitModule : EverestModule {
                 cursor.EmitDelegate<Func<float>>(() => (float)Engine.Height);
             }
         });
-        HookMethod(typeof(LightningRenderer), "OnRenderBloom", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
-        HookMethod(typeof(Level), "EnforceBounds", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
-        HookMethod(typeof(Level), "ResetZoom", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
-        HookMethod(typeof(Level), "ScreenToWorld", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
-        HookMethod(typeof(Level), "WorldToScreen", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
-        HookMethod(typeof(HiresRenderer), "get_DrawToBuffer", il => ReplaceConstant(il, 1080f, () => (float)Engine.Height, () => Engine.Height));
-        */
 
         // 8. Hook Culling checks
         Step("culling");
