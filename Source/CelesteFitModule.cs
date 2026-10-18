@@ -270,15 +270,7 @@ public class CelesteFitModule : EverestModule {
         cursor.Index = 0;
         while (cursor.TryGotoNext(i => i.MatchLdfld<Backdrop>("LoopY"))) {
             cursor.Remove();
-            cursor.EmitDelegate<Func<Backdrop, bool>>(backdrop => {
-                if (GameHeight > 180 && backdrop is Parallax p) {
-                    var path = p.Texture?.AtlasPath;
-                    if (path == "bgs/03/bg2" || path == "bgs/03/bg2b" || path == "bgs/03/bg3" || path == "bgs/03/bg3b") {
-                        return false;
-                    }
-                }
-                return backdrop.LoopY;
-            });
+            cursor.EmitDelegate<Func<Backdrop, bool>>(backdrop => false);
         }
     }
 
