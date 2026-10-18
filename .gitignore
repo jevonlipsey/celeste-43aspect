@@ -24,3 +24,6 @@ Thumbs.db
 .vs/
 .vscode/
 .idea/
+
+# test screenshots
+*.png

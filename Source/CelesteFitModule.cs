@@ -48,6 +48,11 @@ public class CelesteFitModule : EverestModule {
     private static Action<Parallax, Scene>? parallaxTiler;
     // rendering is single threaded, so the current backdrop's loop flag can live in a static
     private static bool _parallaxLoopY;
+    // widths of the screen-covering rects the 16:9 codebase draws, used to tell their height (200)
+    // apart from unrelated 200s in the same method
+    private static readonly float[] ScreenFillWidths = { 340f, 26f };
+    // last bloom state logged, so the probe only writes when something changes
+    private static string? _lastBloomProbe;
 
     public CelesteFitModule() {
         Instance = this;
@@ -87,10 +92,29 @@ public class CelesteFitModule : EverestModule {
         Step("parallax.Render");
         PatchParallaxRenderer();
 
-        // 4b. the backdrop fade rect (used on level transitions) is drawn 340x200, so the bottom
-        // of a 4:3 view stays clear while the screen is meant to be faded out
-        Step("backdrop fade rect");
-        HookMethod(typeof(BackdropRenderer), "Render", il => ReplaceConstant(il, 200f, () => GameHeight + 20f, () => GameHeight + 20));
+        // 4b. the 16:9 code covers the screen with a rect a little larger than the view on every
+        // side (340x200 at -10,-10), or with a 26px edge strip, so -10..190 gets painted and the
+        // bottom of a 4:3 view stays clear. bloom's base fill is the one that shows up in gameplay:
+        // it is the brightness the whole screen is lifted by, so an unpainted bottom 25% reads as a
+        // dark band that is invisible on chapters with BloomBase 0 and obvious on bright ones.
+        Step("screen fade rects");
+        foreach (var (typeName, methodName) in new[] {
+            ("Celeste.BloomRenderer", "Apply"),
+            ("Celeste.BackdropRenderer", "Render"),
+            ("Celeste.AscendManager", "Render"),
+            ("Celeste.AscendManager+Clouds+Fader", "Render"),
+            ("Celeste.AscendManager+Streaks", "Render"),
+            ("Celeste.BackgroundFadeIn", "Render"),
+            ("Celeste.SummitGem", "Render"),
+            ("Celeste.CS03_Ending", "Render"),
+            ("Celeste.CS04_MirrorPortal", "Render"),
+            ("Celeste.CS07_Credits", "Render"),
+            ("Celeste.CS10_MoonIntro", "Render"),
+        }) {
+            var type = FindType(typeName);
+            if (type == null) continue;
+            HookMethod(type, methodName, PatchScreenFadeRects);
+        }
 
         // 4c. one line per backdrop so a mis-sized one shows up in the log without a debug build
         Step("backdrop probe");
@@ -108,6 +132,31 @@ public class CelesteFitModule : EverestModule {
                 }
             });
         });
+
+        // 4c2. one line per distinct bloom state so the base fill and the buffer sizes behind it are
+        // provable from the log. base is the screen-wide brightness lift: 0 on most chapters (the
+        // band is invisible) and positive on the bright ones (where it shows up).
+        Step("bloom probe");
+        HookMethod(typeof(BloomRenderer), "Apply", il => {
+            var cursor = new ILCursor(il);
+            cursor.Emit(OpCodes.Ldarg_0);
+            cursor.EmitDelegate<Action<BloomRenderer>>(b => {
+                var light = typeof(GameplayBuffers).GetField("Light")?.GetValue(null);
+                var line = $"bloom: base={b.Base:F3} strength={b.Strength:F2} light={(light as RenderTarget2D)?.Width ?? -1}x{(light as RenderTarget2D)?.Height ?? -1} screen={Engine.Width}x{Engine.Height}";
+                if (line == _lastBloomProbe) return;
+                _lastBloomProbe = line;
+                Logger.Log(LogLevel.Info, "CelesteFit", line);
+            });
+        });
+
+        // 4d. hud text and icons placed by a bare y literal that only means anything against a 1080
+        // tall screen. the value is not one of the screen constants, so the ui sweep cannot see it,
+        // and once the screen is 1440 tall the element lands in the middle of the menu instead of
+        // below it (return to map hint and the quick restart hint both overlap the menu text).
+        Step("bottom anchored hud");
+        HookMethod(typeof(ReturnMapHint), "Render", il => ReanchorToBottom(il, 730f, 350f));
+        HookMethod(typeof(QuickResetHint), "Render", il => ReanchorToBottom(il, 980f, 100f));
+        HookMethod(typeof(SaveLoadIcon), "Render", il => ReanchorToBottom(il, 920f, 160f));
 
         // 5. Hook MountainRenderer.Render for menu vignette
         Step("mountainrenderer.Render");
@@ -403,6 +452,36 @@ public class CelesteFitModule : EverestModule {
         }
     }
 
+    /// a bottom anchored hud element is placed with a bare y literal, like 730 on a 1080 tall
+    /// screen. keep the distance from the bottom instead of the distance from the top.
+    private static void ReanchorToBottom(ILContext il, float original, float fromBottom) {
+        var cursor = new ILCursor(il);
+        int replaced = 0;
+        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - original) < 0.01f)) {
+            cursor.Remove();
+            cursor.EmitDelegate<Func<float>>(() => Engine.Height - fromBottom);
+            replaced++;
+        }
+        if (replaced > 0) LogReplacements(il, replaced);
+    }
+
+    /// a full-screen fill in the 16:9 codebase is a rect drawn a little larger than the view on every
+    /// side, so only its height needs the 4:3 treatment. guarded on the width, because the height
+    /// constant (200) is a common number and blanket-replacing it would corrupt unrelated maths.
+    private static void PatchScreenFadeRects(ILContext il) {
+        var cursor = new ILCursor(il);
+        int replaced = 0;
+        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - 200f) < 0.01f)) {
+            var width = cursor.Previous;
+            if (width == null || width.OpCode != OpCodes.Ldc_R4) continue;
+            if (Array.IndexOf(ScreenFillWidths, (float)width.Operand) < 0) continue;
+            cursor.Remove();
+            cursor.EmitDelegate<Func<float>>(() => GameHeight + 20f);
+            replaced++;
+        }
+        if (replaced > 0) LogReplacements(il, replaced);
+    }
+
     /// the same constant shows up as int in some methods and float in others, so the
     /// replacement has to emit whatever type the original instruction pushed.
     private static void ReplaceConstant(ILContext il, float original, Func<float> asFloat, Func<int> asInt) {
@@ -535,6 +614,8 @@ public class CelesteFitModule : EverestModule {
             // the wave-dash tutorial, chapter end screens and the leftover wipes are full screen too
             typeof(SpotlightWipe), typeof(WaveDashPresentation), typeof(GameplayStats),
             typeof(MemorialText), typeof(PreviewRecording),
+            // cutscene text and the photo mode are laid out in the same 1080 space
+            typeof(Selfie), typeof(CS00_Ending), typeof(TestWipes),
             // only listed for their nested screen-space overlays
             typeof(Cassette), typeof(Lookout),
             // everest's own menus and overlays
@@ -542,6 +623,8 @@ public class CelesteFitModule : EverestModule {
             typeof(OuiMapSearch), typeof(OuiModOptions), typeof(OuiModOptionString),
             typeof(OuiNumberEntry), typeof(OuiOOBE), typeof(OuiSoundTest), typeof(OuiVersionList),
             typeof(AssetReloadHelper), typeof(CustomHeightDisplay), typeof(CustomTextVignette),
+            // everest's menu item widgets centre the whole menu on y 540
+            FindType("Celeste.TextMenuExt"),
             // the editor's own ui, and everest's mod list (internal, so only reachable by name)
             FindType("Celeste.Editor.MapEditor"), FindType("Celeste.Mod.UI.OuiModUpdateList")
         };
