@@ -262,13 +262,22 @@ public class CelesteFitModule : EverestModule {
     private static void PatchParallaxRender(ILContext il) {
         var cursor = new ILCursor(il);
         if (cursor.TryGotoNext(MoveType.After, i => i.OpCode == OpCodes.Stloc_1)) {
-            cursor.Emit(OpCodes.Ldloca_S, (byte)1);
+            // no camera shift: backgrounds stretch instead of sliding
+        }
+
+        cursor.Index = 0;
+        // stretch the vertical scale so backgrounds cover the full 4:3 height
+        while (cursor.TryGotoNext(MoveType.After, i => i.OpCode == OpCodes.Stloc_S)) {
+            var vd = cursor.Prev.Operand as VariableDefinition;
+            if (vd == null || vd.Index != 8) continue;
+            cursor.Emit(OpCodes.Ldloca_S, (byte)8);
             var yField = typeof(Vector2).GetField("Y")!;
             cursor.Emit(OpCodes.Dup);
             cursor.Emit(OpCodes.Ldfld, yField);
-            cursor.EmitDelegate<Func<float>>(() => -CameraPadding);
-            cursor.Emit(OpCodes.Add);
+            cursor.EmitDelegate<Func<float>>(() => (float)GameHeight / 180f);
+            cursor.Emit(OpCodes.Mul);
             cursor.Emit(OpCodes.Stfld, yField);
+            break;
         }
 
         cursor.Index = 0;
