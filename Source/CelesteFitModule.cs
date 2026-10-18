@@ -260,24 +260,11 @@ public class CelesteFitModule : EverestModule {
     }
 
     private static void PatchParallaxRender(ILContext il) {
+        // non-looping backgrounds tile at a 180px stride; grow it to the 4:3 height
+        ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight);
         var cursor = new ILCursor(il);
         if (cursor.TryGotoNext(MoveType.After, i => i.OpCode == OpCodes.Stloc_1)) {
-            // no camera shift: backgrounds stretch instead of sliding
-        }
-
-        cursor.Index = 0;
-        // stretch the vertical scale so backgrounds cover the full 4:3 height
-        while (cursor.TryGotoNext(MoveType.After, i => i.OpCode == OpCodes.Stloc_S)) {
-            var vd = cursor.Prev.Operand as VariableDefinition;
-            if (vd == null || vd.Index != 8) continue;
-            cursor.Emit(OpCodes.Ldloca_S, (byte)8);
-            var yField = typeof(Vector2).GetField("Y")!;
-            cursor.Emit(OpCodes.Dup);
-            cursor.Emit(OpCodes.Ldfld, yField);
-            cursor.EmitDelegate<Func<float>>(() => (float)GameHeight / 180f);
-            cursor.Emit(OpCodes.Mul);
-            cursor.Emit(OpCodes.Stfld, yField);
-            break;
+            // no camera shift
         }
 
         cursor.Index = 0;
