@@ -103,6 +103,13 @@ public class CelesteFitModule : EverestModule {
         Step("level flash");
         HookMethod(typeof(Level), "Render", il => ReplaceConstant(il, 182f, () => GameHeight + 2f, () => GameHeight + 2));
 
+        // 7c. lighting and wall culls that assumed a 180-tall view: lights/walls below the old
+        // 16:9 line were dropped, leaving the bottom of the screen dark or empty
+        Step("lighting/wall culls");
+        HookMethod(typeof(LightingRenderer), "BeforeRender", il => ReplaceConstant(il, 180f, () => GameHeight, () => GameHeight));
+        HookMethod(typeof(FakeWall), "Render", il => ReplaceConstant(il, 180f, () => GameHeight, () => GameHeight));
+        HookMethod(typeof(ExitBlock), "Render", il => ReplaceConstant(il, 180f, () => GameHeight, () => GameHeight));
+
         // 8. Hook Culling checks
         Step("culling");
         HookMethod(typeof(Level), "IsInCamera", PatchCulling);
@@ -349,8 +356,7 @@ public class CelesteFitModule : EverestModule {
             typeof(Starfield), typeof(StarsBG), typeof(DreamStars), typeof(HeatWave),
             typeof(StardustFG), typeof(CoreStarsFG), typeof(ReflectionFG), typeof(MirrorFG),
             typeof(NorthernLights), typeof(BlackholeBG), typeof(GlassBlockBg), typeof(FallEffects),
-            typeof(StarJumpController), typeof(MirrorSurfaces), typeof(WindSnowFG), typeof(RainFG),
-            typeof(LightingRenderer), typeof(FakeWall), typeof(ExitBlock)
+            typeof(StarJumpController), typeof(MirrorSurfaces), typeof(WindSnowFG), typeof(RainFG)
         };
 
         // these effects bake the 320x180 view into fields inside their constructors, which
@@ -471,12 +477,9 @@ public class CelesteFitModule : EverestModule {
     /// the ui is laid out in a 1920x1080 space, so every hardcoded 1080 based constant has to
     /// follow Engine.Height once the virtual screen is taller than 1080. the same number is an
     /// int in some methods and a float in others, so emit whichever the original pushed.
-    private static bool _hiresSnowProbeLogged;
-
     private static void PatchUIScreenConstants(ILContext il) {
         var cursor = new ILCursor(il);
         int replaced = 0;
-        bool isHiresSnow = il.Method?.DeclaringType?.FullName == typeof(HiresSnow).FullName;
         while (cursor.TryGotoNext(IsScreenConstant)) {
             bool isFloat = cursor.Next.OpCode == OpCodes.Ldc_R4;
             int val = isFloat ? (int)(float)cursor.Next.Operand : (int)cursor.Next.Operand;
@@ -486,21 +489,8 @@ public class CelesteFitModule : EverestModule {
                 if (isFloat) cursor.EmitDelegate<Func<float>>(() => Engine.Height / 2f);
                 else cursor.EmitDelegate<Func<int>>(() => Engine.Height / 2);
             } else if (val == 1080) {
-                if (isFloat) {
-                    if (isHiresSnow) {
-                        cursor.EmitDelegate<Func<float>>(() => {
-                            if (!_hiresSnowProbeLogged) {
-                                _hiresSnowProbeLogged = true;
-                                Logger.Log(LogLevel.Info, "CelesteFit", $"hires snow overlay: Engine={Engine.Width}x{Engine.Height}");
-                            }
-                            return (float)Engine.Height;
-                        });
-                    } else {
-                        cursor.EmitDelegate<Func<float>>(() => (float)Engine.Height);
-                    }
-                } else {
-                    cursor.EmitDelegate<Func<int>>(() => Engine.Height);
-                }
+                if (isFloat) cursor.EmitDelegate<Func<float>>(() => (float)Engine.Height);
+                else cursor.EmitDelegate<Func<int>>(() => Engine.Height);
             } else if (val == 1082) {
                 if (isFloat) cursor.EmitDelegate<Func<float>>(() => Engine.Height + 2f);
                 else cursor.EmitDelegate<Func<int>>(() => Engine.Height + 2);
