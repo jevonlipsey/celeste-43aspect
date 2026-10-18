@@ -44,6 +44,7 @@ public class CelesteFitModule : EverestModule {
 
     private static bool _hiresSnowRan;
     private static bool _lightingRan;
+    private static readonly HashSet<string> _seenBackdrops = new();
 
     public CelesteFitModule() {
         Instance = this;
@@ -81,7 +82,27 @@ public class CelesteFitModule : EverestModule {
 
         // 4. Hook Parallax.Render
         Step("parallax.Render");
-        HookMethod(typeof(Parallax), "Render", PatchParallaxRender);
+        PatchParallaxRenderer();
+
+        // 4b. the backdrop fade rect (used on level transitions) is drawn 340x200, so the bottom
+        // of a 4:3 view stays clear while the screen is meant to be faded out
+        Step("backdrop fade rect");
+        HookMethod(typeof(BackdropRenderer), "Render", il => ReplaceConstant(il, 200f, () => GameHeight + 20f, () => GameHeight + 20));
+
+        // 4c. one line per backdrop so a mis-sized one shows up in the log without a debug build
+        Step("backdrop probe");
+        HookMethod(typeof(BackdropRenderer), "Update", il => {
+            var cursor = new ILCursor(il);
+            cursor.Emit(OpCodes.Ldarg_0);
+            cursor.EmitDelegate<Action<BackdropRenderer>>(r => {
+                foreach (var backdrop in r.Backdrops) {
+                    if (backdrop is not Parallax p || p.Texture == null) continue;
+                    if (!_seenBackdrops.Add(p.Texture.AtlasPath ?? "?")) continue;
+                    Logger.Log(LogLevel.Info, "CelesteFit",
+                        $"backdrop: {p.Texture.AtlasPath} loopY={p.LoopY} tex={p.Texture.Width}x{p.Texture.Height} scroll={p.Scroll}");
+                }
+            });
+        });
 
         // 5. Hook MountainRenderer.Render for menu vignette
         Step("mountainrenderer.Render");
@@ -267,6 +288,34 @@ public class CelesteFitModule : EverestModule {
             });
             cursor.Index++;
         }
+    }
+
+    /// everest moves a method's real body to `orig_<name>` when another mod hooks it. motion
+    /// smoothing owns Parallax.Render, replacing it with a single quad whose source-rect height
+    /// is clamped to `ceil(180 - y)` - i.e. the backdrop is never drawn past the old 16:9 line,
+    /// leaving a hard band at 75% of a 4:3 screen. that replacement is a dynamic method, so it
+    /// cannot be il-hooked (the detour throws); instead we make its own fallback fire. it delegates
+    /// to the vanilla tiler whenever the sprite batch sampler is not PointWrap, so start the
+    /// backdrop batch with PointClamp and let the (patched) tiler cover the full height.
+    private static void PatchParallaxRenderer() {
+        var render = typeof(Parallax).GetMethod("Render", BindingFlags.Public | BindingFlags.Instance);
+        var orig = typeof(Parallax).GetMethod("orig_Render", BindingFlags.Public | BindingFlags.Instance);
+        if (render == null) return;
+
+        if (orig == null) {
+            Instance.HookMethod(typeof(Parallax), "Render", PatchParallaxRender);
+        } else {
+            Instance.HookMethod(typeof(Parallax), "orig_Render", PatchParallaxRender);
+        }
+
+        Instance.HookMethod(typeof(BackdropRenderer), "StartSpritebatchLooping", il => {
+            var cursor = new ILCursor(il);
+            while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldsfld
+                                        && i.Operand is FieldReference f && f.Name == "PointWrap")) {
+                cursor.Remove();
+                cursor.EmitDelegate<Func<SamplerState>>(() => SamplerState.PointClamp);
+            }
+        });
     }
 
     private static void PatchParallaxRender(ILContext il) {
