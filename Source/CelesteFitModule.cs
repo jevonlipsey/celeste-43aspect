@@ -42,6 +42,9 @@ public class CelesteFitModule : EverestModule {
     // forever. poke the backing field instead.
     private static readonly FieldInfo viewPaddingField = typeof(Engine).GetField("viewPadding", BindingFlags.NonPublic | BindingFlags.Static)!;
 
+    private static bool _hiresSnowRan;
+    private static bool _lightingRan;
+
     public CelesteFitModule() {
         Instance = this;
     }
@@ -109,6 +112,29 @@ public class CelesteFitModule : EverestModule {
         HookMethod(typeof(LightingRenderer), "BeforeRender", il => ReplaceConstant(il, 180f, () => GameHeight, () => GameHeight));
         HookMethod(typeof(FakeWall), "Render", il => ReplaceConstant(il, 180f, () => GameHeight, () => GameHeight));
         HookMethod(typeof(ExitBlock), "Render", il => ReplaceConstant(il, 180f, () => GameHeight, () => GameHeight));
+
+        // runtime probes: confirm these methods actually run with the new dims
+        Step("runtime probes");
+        HookMethod(typeof(HiresSnow), "Render", il => {
+            var cursor = new ILCursor(il);
+            cursor.Emit(OpCodes.Ldarg_0);
+            cursor.EmitDelegate<Action<HiresSnow>>(hs => {
+                if (!_hiresSnowRan) {
+                    _hiresSnowRan = true;
+                    Logger.Log(LogLevel.Info, "CelesteFit", $"HiresSnow.Render ran: Engine={Engine.Width}x{Engine.Height} Alpha={hs.Alpha}");
+                }
+            });
+        });
+        HookMethod(typeof(LightingRenderer), "BeforeRender", il => {
+            var cursor = new ILCursor(il);
+            cursor.Emit(OpCodes.Ldarg_0);
+            cursor.EmitDelegate<Action<LightingRenderer>>(lr => {
+                if (!_lightingRan) {
+                    _lightingRan = true;
+                    Logger.Log(LogLevel.Info, "CelesteFit", $"LightingRenderer.BeforeRender ran: GameHeight={GameHeight}");
+                }
+            });
+        });
 
         // 8. Hook Culling checks
         Step("culling");
@@ -417,6 +443,7 @@ public class CelesteFitModule : EverestModule {
         var uiTypes = new Type?[] {
             // hires renderers: hud, vignettes, the title mountain, the level name
             typeof(HiresSnow), typeof(HudRenderer), typeof(HiresRenderer), typeof(MountainModel),
+            typeof(GameLoader),
             typeof(AutoSavingNotice), typeof(Textbox), typeof(HeightDisplay),
             typeof(IntroVignette), typeof(CoreVignette), typeof(Poem),
             typeof(Overlay), typeof(BreathingMinigame), typeof(UnlockedPico8Message),
