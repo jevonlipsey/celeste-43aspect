@@ -45,6 +45,9 @@ public class CelesteFitModule : EverestModule {
     private static bool _hiresSnowRan;
     private static bool _lightingRan;
     private static readonly HashSet<string> _seenBackdrops = new();
+    private static Action<Parallax, Scene>? parallaxTiler;
+    // rendering is single threaded, so the current backdrop's loop flag can live in a static
+    private static bool _parallaxLoopY;
 
     public CelesteFitModule() {
         Instance = this;
@@ -98,8 +101,10 @@ public class CelesteFitModule : EverestModule {
                 foreach (var backdrop in r.Backdrops) {
                     if (backdrop is not Parallax p || p.Texture == null) continue;
                     if (!_seenBackdrops.Add(p.Texture.AtlasPath ?? "?")) continue;
+                    var cam = (Engine.Scene as Level)?.Camera;
+                    var y = cam != null ? (p.Position - (cam.Position + p.CameraOffset).Floor() * p.Scroll).Floor().Y : 0f;
                     Logger.Log(LogLevel.Info, "CelesteFit",
-                        $"backdrop: {p.Texture.AtlasPath} loopY={p.LoopY} tex={p.Texture.Width}x{p.Texture.Height} scroll={p.Scroll}");
+                        $"backdrop: {p.Texture.AtlasPath} loopY={p.LoopY} tex={p.Texture.Width}x{p.Texture.Height} pos={p.Position} scroll={p.Scroll} screenY={y:F0}");
                 }
             });
         });
@@ -290,24 +295,32 @@ public class CelesteFitModule : EverestModule {
         }
     }
 
-    /// everest moves a method's real body to `orig_<name>` when another mod hooks it. motion
-    /// smoothing owns Parallax.Render, replacing it with a single quad whose source-rect height
-    /// is clamped to `ceil(180 - y)` - i.e. the backdrop is never drawn past the old 16:9 line,
-    /// leaving a hard band at 75% of a 4:3 screen. that replacement is a dynamic method, so it
-    /// cannot be il-hooked (the detour throws); instead we make its own fallback fire. it delegates
-    /// to the vanilla tiler whenever the sprite batch sampler is not PointWrap, so start the
-    /// backdrop batch with PointClamp and let the (patched) tiler cover the full height.
+    /// the chapter backdrops are authored to be painted exactly once (LoopY = false on almost all
+    /// of them), so the tiler draws a single 180-tall tile and breaks - no loop bound can ever fill
+    /// a 240-tall view. stretch that one tile to the full height instead of leaving a band.
+    /// motion smoothing (which is baked into the shipped Celeste.exe here, deleting the mod does
+    /// not undo it) owns Parallax.Render and caps its own quad at 180 too, so route Render straight
+    /// to the vanilla tiler, and fall back to forcing its PointWrap guard if the detour fails.
     private static void PatchParallaxRenderer() {
         var render = typeof(Parallax).GetMethod("Render", BindingFlags.Public | BindingFlags.Instance);
         var orig = typeof(Parallax).GetMethod("orig_Render", BindingFlags.Public | BindingFlags.Instance);
         if (render == null) return;
 
-        if (orig == null) {
-            Instance.HookMethod(typeof(Parallax), "Render", PatchParallaxRender);
-        } else {
+        // orig_Render is the untouched vanilla tiler, and it is a real method we can il-hook
+        if (orig != null) {
             Instance.HookMethod(typeof(Parallax), "orig_Render", PatchParallaxRender);
+            try {
+                parallaxTiler = (Action<Parallax, Scene>)Delegate.CreateDelegate(typeof(Action<Parallax, Scene>), orig);
+                Instance.hooks.Add(new Hook(render, (Action<Parallax, Scene>)ParallaxRenderDetour));
+            } catch (Exception e) {
+                Logger.Log(LogLevel.Warn, "CelesteFit", $"Failed to route Parallax.Render: {e.GetType().Name}: {e.Message}");
+            }
+        } else {
+            Instance.HookMethod(typeof(Parallax), "Render", PatchParallaxRender);
         }
 
+        // if the detour could not be installed: motion smoothing's Render delegates to the vanilla
+        // tiler whenever the batch sampler is not PointWrap, so flip the backdrop batch to PointClamp
         Instance.HookMethod(typeof(BackdropRenderer), "StartSpritebatchLooping", il => {
             var cursor = new ILCursor(il);
             while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldsfld
@@ -318,9 +331,33 @@ public class CelesteFitModule : EverestModule {
         });
     }
 
+    private static void ParallaxRenderDetour(Parallax self, Scene scene) {
+        parallaxTiler?.Invoke(self, scene);
+    }
+
     private static void PatchParallaxRender(ILContext il) {
-        // non-looping backgrounds tile at a 180px stride; grow it to the 4:3 height
+        // grow the tile loop to the 4:3 height
         ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight);
+
+        var cursor = new ILCursor(il);
+        // remember whether this backdrop repeats vertically, so the draw below can decide to stretch
+        cursor.Emit(OpCodes.Ldarg_0);
+        cursor.EmitDelegate<Action<Parallax>>(p => _parallaxLoopY = p.LoopY);
+
+        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Callvirt && i.Operand is MethodReference m
+                                    && m.DeclaringType.Name == "MTexture" && m.Name == "Draw" && m.Parameters.Count == 6)) {
+            cursor.Remove();
+            cursor.EmitDelegate<Action<MTexture, Vector2, Vector2, Color, float, float, SpriteEffects>>(
+                (tex, pos, origin, color, scale, rot, flip) => {
+                    // a non-repeating backdrop only paints its own height; scale it up to the
+                    // taller view, anchored at the top, so nothing is left unpainted
+                    if (!_parallaxLoopY && tex.Height > 0 && tex.Height < GameHeight) {
+                        tex.Draw(new Vector2(pos.X, 0f), origin, color, new Vector2(1f, (float)GameHeight / tex.Height), rot, flip);
+                    } else {
+                        tex.Draw(pos, origin, color, scale, rot, flip);
+                    }
+                });
+        }
     }
 
     private static void PatchMountainRendererRender(ILContext il) {
