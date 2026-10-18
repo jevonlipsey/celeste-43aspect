@@ -48,11 +48,19 @@ public class CelesteFitModule : EverestModule {
     private static Action<Parallax, Scene>? parallaxTiler;
     // rendering is single threaded, so the current backdrop's loop flag can live in a static
     private static bool _parallaxLoopY;
+    private static Parallax? _parallax;
     // widths of the screen-covering rects the 16:9 codebase draws, used to tell their height (200)
     // apart from unrelated 200s in the same method
     private static readonly float[] ScreenFillWidths = { 340f, 26f };
     // last bloom state logged, so the probe only writes when something changes
     private static string? _lastBloomProbe;
+    // the authored y of each parallax layer, captured the first time that layer renders. Parallax.Update
+    // moves Position for layers with drift, so the first value seen is the authored one and the only
+    // stable way to tell a layer authored to fill the view (y 0) from one authored to hang off the top
+    // of it (summit's distant layers sit at -45 / -60 / -150)
+    private static readonly Dictionary<Parallax, float> _authoredTop = new();
+    // one log line per distinct layer/scale, so the stretch decisions are checkable from the device log
+    private static readonly HashSet<string> _loggedStretches = new();
 
     public CelesteFitModule() {
         Instance = this;
@@ -133,7 +141,7 @@ public class CelesteFitModule : EverestModule {
             });
         });
 
-        // 4c2. one line per distinct bloom state so the base fill and the buffer sizes behind it are
+        // 4c2. one line per distinct bloom state so the base fill and the screen size behind it are
         // provable from the log. base is the screen-wide brightness lift: 0 on most chapters (the
         // band is invisible) and positive on the bright ones (where it shows up).
         Step("bloom probe");
@@ -141,8 +149,7 @@ public class CelesteFitModule : EverestModule {
             var cursor = new ILCursor(il);
             cursor.Emit(OpCodes.Ldarg_0);
             cursor.EmitDelegate<Action<BloomRenderer>>(b => {
-                var light = typeof(GameplayBuffers).GetField("Light")?.GetValue(null);
-                var line = $"bloom: base={b.Base:F3} strength={b.Strength:F2} light={(light as RenderTarget2D)?.Width ?? -1}x{(light as RenderTarget2D)?.Height ?? -1} screen={Engine.Width}x{Engine.Height}";
+                var line = $"bloom: base={b.Base:F3} strength={b.Strength:F2} screen={Engine.Width}x{Engine.Height}";
                 if (line == _lastBloomProbe) return;
                 _lastBloomProbe = line;
                 Logger.Log(LogLevel.Info, "CelesteFit", line);
@@ -389,9 +396,12 @@ public class CelesteFitModule : EverestModule {
         ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight);
 
         var cursor = new ILCursor(il);
-        // remember whether this backdrop repeats vertically, so the draw below can decide to stretch
+        // remember the current backdrop so the draw below can decide whether to stretch
         cursor.Emit(OpCodes.Ldarg_0);
-        cursor.EmitDelegate<Action<Parallax>>(p => _parallaxLoopY = p.LoopY);
+        cursor.EmitDelegate<Action<Parallax>>(p => {
+            _parallax = p;
+            _parallaxLoopY = p.LoopY;
+        });
 
         while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Callvirt && i.Operand is MethodReference m
                                     && m.DeclaringType.Name == "MTexture" && m.Name == "Draw" && m.Parameters.Count == 6)) {
@@ -399,16 +409,42 @@ public class CelesteFitModule : EverestModule {
             cursor.EmitDelegate<Action<MTexture, Vector2, Vector2, Color, float, float, SpriteEffects>>(
                 (tex, pos, origin, color, scale, rot, flip) => {
                     // a backdrop authored to be painted once (LoopY = false) only ever covers its own
-                    // 180 rows, leaving the extra 60 rows of a 4:3 view unpainted. stretch it down to
-                    // the bottom of the view, keeping the authored top edge so the layer does not shift
-                    if (!_parallaxLoopY && tex.Height > 0 && tex.Height < GameHeight) {
-                        float top = Math.Min(pos.Y, 0f);
-                        tex.Draw(new Vector2(pos.X, top), origin, color,
-                            new Vector2(1f, (GameHeight - top) / tex.Height), rot, flip);
+                    // 180 rows. stretch it down to the bottom of the view when it was authored to
+                    // reach the bottom of a 16:9 view and no longer reaches the bottom of a 4:3 one.
+                    // the authored top edge is kept, so the layer grows instead of shifting.
+                    float top = pos.Y;
+                    float authoredBottom = AuthoredTop(_parallax, top) + tex.Height;
+                    if (!_parallaxLoopY && tex.Height > 0 && authoredBottom >= 180f && authoredBottom < GameHeight) {
+                        float scaleY = (GameHeight - top) / tex.Height;
+                        tex.Draw(new Vector2(pos.X, top), origin, color, new Vector2(1f, scaleY), rot, flip);
+                        LogStretch(tex, top, authoredBottom, scaleY);
                     } else {
                         tex.Draw(pos, origin, color, scale, rot, flip);
                     }
                 });
+        }
+    }
+
+    /// the y a parallax layer was authored at. Parallax.Update adds drift to Position, so the first
+    /// value seen for a layer is the authored one, and caching it keeps the stretch decision stable
+    /// (a layer near the threshold would otherwise pop between stretched and vanilla as it drifts).
+    private static float AuthoredTop(Parallax? parallax, float fallback) {
+        if (parallax == null) return fallback;
+        if (_authoredTop.TryGetValue(parallax, out var cached)) return cached;
+        if (_authoredTop.Count > 512) _authoredTop.Clear();
+        _authoredTop[parallax] = parallax.Position.Y;
+        return parallax.Position.Y;
+    }
+
+    /// one line per layer/scale so the stretch decisions are checkable from the device log
+    private static void LogStretch(MTexture tex, float top, float authoredBottom, float scaleY) {
+        try {
+            var key = $"{tex.AtlasPath}|{top:F0}|{scaleY:F2}";
+            if (!_loggedStretches.Add(key)) return;
+            Logger.Log(LogLevel.Info, "CelesteFit",
+                $"backdrop stretch: {tex.AtlasPath} top={top:F0} authoredBottom={authoredBottom:F0} scaleY={scaleY:F2}");
+        } catch {
+            // a probe must never take the renderer down with it
         }
     }
 
@@ -735,6 +771,16 @@ public class CelesteFitModule : EverestModule {
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies()) {
             var type = assembly.GetType(typeName, false);
             if (type != null) return type;
+
+            // Assembly.GetType misses private nested types (AscendManager+Clouds+Fader), so walk the
+            // nesting by hand before giving up
+            if (!typeName.Contains('+')) continue;
+            var parts = typeName.Split('+');
+            var nested = assembly.GetType(parts[0], false);
+            for (int i = 1; i < parts.Length && nested != null; i++) {
+                nested = nested.GetNestedType(parts[i], BindingFlags.Public | BindingFlags.NonPublic);
+            }
+            if (nested != null) return nested;
         }
         Logger.Log(LogLevel.Warn, "CelesteFit", $"Could not find type {typeName}");
         return null;
