@@ -260,15 +260,13 @@ public class CelesteFitModule : EverestModule {
     }
 
     private static void PatchParallaxRender(ILContext il) {
-        // non-looping backgrounds tile at a 180px stride; grow it to the 4:3 height
-        ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight);
         var cursor = new ILCursor(il);
         if (cursor.TryGotoNext(MoveType.After, i => i.OpCode == OpCodes.Stloc_1)) {
             cursor.Emit(OpCodes.Ldloca_S, (byte)1);
             var yField = typeof(Vector2).GetField("Y")!;
             cursor.Emit(OpCodes.Dup);
             cursor.Emit(OpCodes.Ldfld, yField);
-            cursor.EmitDelegate<Func<float>>(() => CameraPadding);
+            cursor.EmitDelegate<Func<float>>(() => -CameraPadding);
             cursor.Emit(OpCodes.Add);
             cursor.Emit(OpCodes.Stfld, yField);
         }
