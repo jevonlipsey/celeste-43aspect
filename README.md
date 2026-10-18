@@ -33,7 +33,7 @@ Saves, Steam Cloud and achievements are untouched. To uninstall, delete the mod 
 ## Known limitations
 
 - The expanded view is meant for displays taller than 16:9. On a 16:9 or wider display the mod is a no-op (`GameHeight` stays 180 and nothing is patched).
-- A few Core-chapter backdrop constructors build their geometry at a fixed `320×180` and are not patched yet, because the constant pass only walks methods, not constructors. Cosmetic only: the aurora (`NorthernLights`) and glass background (`GlassBlockBg`) stop short of the bottom edge.
+- A few Core-chapter backdrop and particle effects build their geometry at a fixed `320×180` inside their constructors, where the constant pass cannot see it. Those constructors are patched by name; the ones that matter (star and particle spawn ranges, the aurora and glass-block backgrounds, the chapter 9 black-hole centre) are listed and verified against the shipped game assembly.
 - Some cutscenes frame slightly higher than authored; the fix favours keeping Madeline and readable dialogue on screen.
 
 ## Layout
