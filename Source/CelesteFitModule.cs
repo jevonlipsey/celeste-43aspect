@@ -106,6 +106,9 @@ public class CelesteFitModule : EverestModule {
         Step("level flash");
         HookMethod(typeof(Level), "Render", il => ReplaceConstant(il, 182f, () => GameHeight + 2f, () => GameHeight + 2));
 
+        // 7b2. the zoom anchor uses 180 as the design height; grow it to 4:3
+        HookMethod(typeof(Level), "Render", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
+
         // 7c. lighting and wall culls that assumed a 180-tall view: lights/walls below the old
         // 16:9 line were dropped, leaving the bottom of the screen dark or empty
         Step("lighting/wall culls");
@@ -115,10 +118,7 @@ public class CelesteFitModule : EverestModule {
 
         // runtime probes: confirm these methods actually run with the new dims
         Step("runtime probes");
-        HookMethod(typeof(HiresSnow), "Render", il => {
-            var cursor = new ILCursor(il);
-            cursor.Emit(OpCodes.Ret);
-        });
+        // HiresSnow is handled by the UI sweep (1080 -> Engine.Height)
         HookMethod(typeof(LightingRenderer), "BeforeRender", il => {
             var cursor = new ILCursor(il);
             cursor.Emit(OpCodes.Ldarg_0);
@@ -260,6 +260,8 @@ public class CelesteFitModule : EverestModule {
     }
 
     private static void PatchParallaxRender(ILContext il) {
+        // non-looping backgrounds tile at a 180px stride; grow it to the 4:3 height
+        ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight);
         var cursor = new ILCursor(il);
         if (cursor.TryGotoNext(MoveType.After, i => i.OpCode == OpCodes.Stloc_1)) {
             cursor.Emit(OpCodes.Ldloca_S, (byte)1);
@@ -352,6 +354,9 @@ public class CelesteFitModule : EverestModule {
             cursor.Remove();
             cursor.Emit(OpCodes.Callvirt, topGetter);
         }
+        // the view rect height (180) also needs to grow to the 4:3 height
+        cursor.Index = 0;
+        ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight);
     }
 
     /// the hires buffers the hud, menus and wipes render into are allocated once at a fixed
