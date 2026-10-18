@@ -42,7 +42,6 @@ public class CelesteFitModule : EverestModule {
     // forever. poke the backing field instead.
     private static readonly FieldInfo viewPaddingField = typeof(Engine).GetField("viewPadding", BindingFlags.NonPublic | BindingFlags.Static)!;
 
-    private static bool _hiresSnowRan;
     private static bool _lightingRan;
     private static readonly HashSet<string> _seenBackdrops = new();
     private static Action<Parallax, Scene>? parallaxTiler;
@@ -286,9 +285,19 @@ public class CelesteFitModule : EverestModule {
     }
 
     private bool TryHook(Type type, string methodName, ILContext.Manipulator manipulator) {
-        MethodInfo? method;
+        MethodBase? method;
         try {
-            method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+            // Type.GetMethod(".ctor") never matches: constructors are not looked up by name. without
+            // this the whole low-type constructor sweep silently skipped and each one logged a warning,
+            // so star and particle fields kept spawning inside the top 180 rows of a 240 row screen.
+            if (methodName == ".ctor") {
+                method = type.GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                      ?? type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance).FirstOrDefault();
+            } else if (methodName == ".cctor") {
+                method = type.TypeInitializer;
+            } else {
+                method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+            }
         } catch (AmbiguousMatchException) {
             method = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
                 .FirstOrDefault(m => m.Name == methodName);
@@ -636,9 +645,12 @@ public class CelesteFitModule : EverestModule {
         };
 
         // these effects bake the 320x180 view into fields inside their constructors, which
-        // GetMethods() never enumerates, so their ctors get the same constant swap explicitly
+        // GetMethods() never enumerates, so their ctors get the same constant swap explicitly.
+        // every type here was checked against the shipped Celeste.exe: the 180 is a spawn range
+        // or the design height (BlackholeBG::center = (320,180)/2) and never an unrelated value
         var ctorTypes = new[] {
-            typeof(Starfield), typeof(NorthernLights), typeof(GlassBlockBg), typeof(FallEffects)
+            typeof(Starfield), typeof(StarsBG), typeof(DreamStars), typeof(BlackholeBG),
+            typeof(NorthernLights), typeof(GlassBlockBg), typeof(FallEffects)
         };
 
         foreach (var type in lowTypes) {
