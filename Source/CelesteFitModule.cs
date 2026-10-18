@@ -49,9 +49,15 @@ public class CelesteFitModule : EverestModule {
     // rendering is single threaded, so the current backdrop's loop flag can live in a static
     private static bool _parallaxLoopY;
     private static Parallax? _parallax;
-    // widths of the screen-covering rects the 16:9 codebase draws, used to tell their height (200)
-    // apart from unrelated 200s in the same method
-    private static readonly float[] ScreenFillWidths = { 340f, 26f };
+    // the screen-covering rects the 16:9 codebase draws. the game paints the whole view with a rect
+    // 10px bigger than 320x180 on every side, so the height is always the view height plus a few rows.
+    // keyed on the (width, height) pair, because either number alone is too common to replace safely.
+    private static readonly (float width, float height, float extra)[] ScreenCovers = {
+        (340f, 200f, 20f), // -10,-10 340x200: fades, bloom base fill, the ascend background
+        (26f, 200f, 20f),  // the ascend launch edge strips
+        (322f, 182f, 2f),  // -1,-1 322x182: the level flash, farewell/gondola/formation darkness
+        (370f, 190f, 10f), // heat wave displacement fill, -5,-5
+    };
     // last bloom state logged, so the probe only writes when something changes
     private static string? _lastBloomProbe;
     // the authored y of each parallax layer, captured the first time that layer renders. Parallax.Update
@@ -76,13 +82,12 @@ public class CelesteFitModule : EverestModule {
         Step("engine.UpdateView");
         HookMethod(typeof(Engine), "UpdateView", PatchEngineUpdateView);
 
-        // 2. Hook Level.ZoomSnap, ZoomTo, ZoomAcross
-        Step("level zoom");
-        HookMethod(typeof(Level), "ZoomSnap", PatchZoom);
-        HookMethod(typeof(Level), "ZoomTo", PatchZoom);
-        HookMethod(typeof(Level), "ZoomAcross", PatchZoom);
+        // 2. (removed) Level.ZoomSnap/ZoomTo/ZoomAcross used to get CameraPadding added to the y of
+        // their screen space focus point, which only made sense while the camera origin was shifted
+        // down by the same amount. with the origin back at zero the zoom framing is vanilla's again:
+        // the focus point lands where 16:9 puts it and the extra rows fall below it.
 
-        // 3. Hook GameplayRenderer constructor (camera origin offset)
+        // 3. Hook GameplayRenderer constructor (camera viewport height)
         Step("gameplayrenderer ctor");
         foreach (var ctor in typeof(GameplayRenderer).GetConstructors()) {
             try {
@@ -105,19 +110,30 @@ public class CelesteFitModule : EverestModule {
         // bottom of a 4:3 view stays clear. bloom's base fill is the one that shows up in gameplay:
         // it is the brightness the whole screen is lifted by, so an unpainted bottom 25% reads as a
         // dark band that is invisible on chapters with BloomBase 0 and obvious on bright ones.
+        // every entry here is one of the 16 rects of that shape in Celeste.exe, and most of them live
+        // in a nested class (the fade helpers), which is why they are spelled out with the nesting:
+        // a plain "Celeste.CS03_Ending" resolves but has no Render of its own, so its cover stayed
+        // 200 rows tall and the bottom 40 rows of that scene never faded.
         Step("screen fade rects");
         foreach (var (typeName, methodName) in new[] {
             ("Celeste.BloomRenderer", "Apply"),
             ("Celeste.BackdropRenderer", "Render"),
             ("Celeste.AscendManager", "Render"),
-            ("Celeste.AscendManager+Clouds+Fader", "Render"),
+            ("Celeste.AscendManager+Fader", "Render"),
             ("Celeste.AscendManager+Streaks", "Render"),
             ("Celeste.BackgroundFadeIn", "Render"),
-            ("Celeste.SummitGem", "Render"),
-            ("Celeste.CS03_Ending", "Render"),
-            ("Celeste.CS04_MirrorPortal", "Render"),
-            ("Celeste.CS07_Credits", "Render"),
+            ("Celeste.SummitGem+BgFlash", "Render"),
+            ("Celeste.CS03_Ending+BgFlash", "Render"),
+            ("Celeste.CS04_MirrorPortal+Fader", "Render"),
+            ("Celeste.CS07_Credits+Fill", "Render"),
             ("Celeste.CS10_MoonIntro", "Render"),
+            // 322x182 and 370x190 covers: the level flash is drawn in buffer space, the rest start
+            // one or five pixels above the camera top, so all of them stop short of a 240 row view
+            ("Celeste.Level", "Render"),
+            ("Celeste.CS10_Farewell", "Render"),
+            ("Celeste.FormationBackdrop", "Render"),
+            ("Celeste.GondolaDarkness+Blackness", "Render"),
+            ("Celeste.HeatWave", "RenderDisplacement"),
         }) {
             var type = FindType(typeName);
             if (type == null) continue;
@@ -218,8 +234,13 @@ public class CelesteFitModule : EverestModule {
         HookMethod(typeof(LightningRenderer), "OnRenderBloom", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
         HookMethod(typeof(Level), "EnforceBounds", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
         HookMethod(typeof(Level), "ResetZoom", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
-        HookMethod(typeof(Level), "ScreenToWorld", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
-        HookMethod(typeof(Level), "WorldToScreen", il => ReplaceConstant(il, 180f, () => (float)GameHeight, () => GameHeight));
+        // ScreenToWorld and WorldToScreen carry their own copy of the zoom blit maths, so their design
+        // size has to stay 320x180 to agree with Level.Render's copy: the focus point is a screen space
+        // point, and a 320x240 design size would put zoomed content 30 rows lower than the blit does.
+        // what they do need is the padding aspect, see PatchScreenPaddingAspect.
+        HookMethod(typeof(Level), "ScreenToWorld", PatchScreenPaddingAspect);
+        HookMethod(typeof(Level), "WorldToScreen", PatchScreenPaddingAspect);
+        HookMethod(typeof(Level), "Render", PatchScreenPaddingAspect);
         HookMethod(typeof(HiresRenderer), "get_DrawToBuffer", il => ReplaceConstant(il, 1080f, () => (float)Engine.Height, () => Engine.Height));
 
         // 8. Hook Culling checks
@@ -300,21 +321,18 @@ public class CelesteFitModule : EverestModule {
         });
     }
 
-    private static void PatchZoom(ILContext il) {
-        var cursor = new ILCursor(il);
-        var yField = typeof(Vector2).GetField("Y")!;
-        cursor.Emit(OpCodes.Ldarga_S, (byte)1);
-        cursor.Emit(OpCodes.Dup);
-        cursor.Emit(OpCodes.Ldfld, yField);
-        cursor.EmitDelegate<Func<float>>(() => CameraPadding);
-        cursor.Emit(OpCodes.Add);
-        cursor.Emit(OpCodes.Stfld, yField);
-    }
-
     // the level camera *is* this camera (LevelLoader assigns Level.Camera = GameplayRenderer.Camera),
     // and the world is drawn into GameplayBuffers.Gameplay. that buffer grows to GameHeight, so the
     // camera viewport has to grow with it: everything that clips against Camera.Top/Bottom uses it as
     // the view size, and a 180 view culls every tile below the 180px line out of the 240px screen.
+    //
+    // origin is left at zero on purpose. camera matrix is translate(-position) * scale(zoom) *
+    // translate(+origin), so any origin shift moves the world inside the buffer but not the parallax,
+    // which is drawn in screen space with an identity matrix. shifting down by CameraPadding also
+    // pushes every world-space screen cover (the ascend fader starts at camera.Y - 10 and is 260 tall,
+    // so it would begin 50px down the screen) and leaves the world misaligned with the art behind it.
+    // with origin zero the camera top is buffer row 0 exactly as in 16:9, so the extra 60 rows land
+    // below the view and every one of those rects still covers the whole screen.
     private static void PatchGameplayRendererCtor(ILContext il) {
         var cursor = new ILCursor(il);
         while (cursor.TryGotoNext(i => (i.OpCode == OpCodes.Ldc_I4 && (int)i.Operand == 180)
@@ -323,14 +341,6 @@ public class CelesteFitModule : EverestModule {
             cursor.Remove();
             if (isFloat) cursor.EmitDelegate<Func<float>>(() => (float)GameHeight);
             else cursor.EmitDelegate<Func<int>>(() => GameHeight);
-        }
-
-        while (cursor.TryGotoNext(MoveType.Before, i => i.OpCode == OpCodes.Ret)) {
-            cursor.Emit(OpCodes.Ldarg_0);
-            cursor.EmitDelegate<Action<GameplayRenderer>>(renderer => {
-                renderer.Camera.Origin = new Vector2(0f, CameraPadding);
-            });
-            cursor.Index++;
         }
     }
 
@@ -345,7 +355,8 @@ public class CelesteFitModule : EverestModule {
                 if (cam == null) return;
                 Logger.Log(LogLevel.Info, "CelesteFit",
                     $"room camera: engine {Engine.Width}x{Engine.Height} " +
-                    $"camera y {cam.Top:F0}..{cam.Bottom:F0} (= {(cam.Bottom - cam.Top) * cam.Zoom:F0}px at zoom {cam.Zoom:F1})");
+                    $"camera y {cam.Top:F0}..{cam.Bottom:F0} (= {(cam.Bottom - cam.Top) * cam.Zoom:F0}px at zoom {cam.Zoom:F1}) " +
+                    $"pos y {cam.Position.Y:F0} origin y {cam.Origin.Y:F0} row0 {cam.ScreenToCamera(Vector2.Zero).Y:F0}");
             });
             cursor.Index++;
         }
@@ -504,18 +515,68 @@ public class CelesteFitModule : EverestModule {
     /// a full-screen fill in the 16:9 codebase is a rect drawn a little larger than the view on every
     /// side, so only its height needs the 4:3 treatment. guarded on the width, because the height
     /// constant (200) is a common number and blanket-replacing it would corrupt unrelated maths.
-    private static void PatchScreenFadeRects(ILContext il) {
+    /// ScreenPadding insets the view by that many pixels on the left and right, and by the same
+    /// fraction of the view height at the top and bottom: 16 * (180/320) = 9 rows in 16:9. the 4:3
+    /// correction is 16 * (240/320) = 12, otherwise the inset is 9 rows at the top and 15 at the
+    /// bottom. ScreenPadding is zero everywhere except the lookout, the seeker and the mirror portal.
+    private static void PatchScreenPaddingAspect(ILContext il) {
         var cursor = new ILCursor(il);
         int replaced = 0;
-        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - 200f) < 0.01f)) {
-            var width = cursor.Previous;
-            if (width == null || width.OpCode != OpCodes.Ldc_R4) continue;
-            if (Array.IndexOf(ScreenFillWidths, (float)width.Operand) < 0) continue;
+        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - 0.5625f) < 0.0001f)) {
             cursor.Remove();
-            cursor.EmitDelegate<Func<float>>(() => GameHeight + 20f);
+            cursor.EmitDelegate<Func<float>>(() => (float)GameHeight / 320f);
+            replaced++;
+        }
+        cursor.Index = 0;
+        // only the ScreenPadding * 9f / 16f pattern: a 9 followed by a multiply by 16, so an
+        // unrelated 9 in the same method cannot be rewritten
+        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_R4 && Math.Abs((float)i.Operand - 9f) < 0.01f)) {
+            if (cursor.Next?.Next?.OpCode != OpCodes.Mul) continue;
+            if (cursor.Next?.Next?.Next?.OpCode != OpCodes.Ldc_R4) continue;
+            if (Math.Abs((float)cursor.Next.Next.Next.Operand - 16f) > 0.01f) continue;
+            cursor.Remove();
+            cursor.EmitDelegate<Func<float>>(() => (float)GameHeight / 320f * 16f);
             replaced++;
         }
         if (replaced > 0) LogReplacements(il, replaced);
+    }
+
+    private static void PatchScreenFadeRects(ILContext il) {
+        var cursor = new ILCursor(il);
+        int replaced = 0;
+        while (cursor.TryGotoNext(i => i.OpCode == OpCodes.Ldc_R4 && IsCoverHeight((float)i.Operand))) {
+            float height = (float)cursor.Next!.Operand;
+            var width = cursor.Previous;
+            if (width == null || width.OpCode != OpCodes.Ldc_R4 || !IsCoverPair((float)width.Operand, height)) continue;
+            float extra = ExtraFor(height);
+            cursor.Remove();
+            cursor.EmitDelegate<Func<float>>(() => GameHeight + extra);
+            replaced++;
+        }
+        if (replaced > 0) LogReplacements(il, replaced);
+    }
+
+    /// true when width and height come from the same cover entry, so an unrelated pair in the
+    /// same method (there are plenty of 340s and 200s around) can never be rewritten.
+    private static bool IsCoverPair(float width, float height) {
+        foreach (var cover in ScreenCovers) {
+            if (Math.Abs(cover.width - width) < 0.01f && Math.Abs(cover.height - height) < 0.01f) return true;
+        }
+        return false;
+    }
+
+    private static bool IsCoverHeight(float height) {
+        foreach (var cover in ScreenCovers) {
+            if (Math.Abs(cover.height - height) < 0.01f) return true;
+        }
+        return false;
+    }
+
+    private static float ExtraFor(float height) {
+        foreach (var cover in ScreenCovers) {
+            if (Math.Abs(cover.height - height) < 0.01f) return cover.extra;
+        }
+        return 0f;
     }
 
     /// the same constant shows up as int in some methods and float in others, so the
