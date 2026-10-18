@@ -117,13 +117,7 @@ public class CelesteFitModule : EverestModule {
         Step("runtime probes");
         HookMethod(typeof(HiresSnow), "Render", il => {
             var cursor = new ILCursor(il);
-            cursor.Emit(OpCodes.Ldarg_0);
-            cursor.EmitDelegate<Action<HiresSnow>>(hs => {
-                if (!_hiresSnowRan) {
-                    _hiresSnowRan = true;
-                    Logger.Log(LogLevel.Info, "CelesteFit", $"HiresSnow.Render ran: Engine={Engine.Width}x{Engine.Height} Alpha={hs.Alpha}");
-                }
-            });
+            cursor.Emit(OpCodes.Ret);
         });
         HookMethod(typeof(LightingRenderer), "BeforeRender", il => {
             var cursor = new ILCursor(il);
