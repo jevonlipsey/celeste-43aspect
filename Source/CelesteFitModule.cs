@@ -349,10 +349,13 @@ public class CelesteFitModule : EverestModule {
             cursor.Remove();
             cursor.EmitDelegate<Action<MTexture, Vector2, Vector2, Color, float, float, SpriteEffects>>(
                 (tex, pos, origin, color, scale, rot, flip) => {
-                    // a non-repeating backdrop only paints its own height; scale it up to the
-                    // taller view, anchored at the top, so nothing is left unpainted
+                    // a backdrop authored to be painted once (LoopY = false) only ever covers its own
+                    // 180 rows, leaving the extra 60 rows of a 4:3 view unpainted. stretch it down to
+                    // the bottom of the view, keeping the authored top edge so the layer does not shift
                     if (!_parallaxLoopY && tex.Height > 0 && tex.Height < GameHeight) {
-                        tex.Draw(new Vector2(pos.X, 0f), origin, color, new Vector2(1f, (float)GameHeight / tex.Height), rot, flip);
+                        float top = Math.Min(pos.Y, 0f);
+                        tex.Draw(new Vector2(pos.X, top), origin, color,
+                            new Vector2(1f, (GameHeight - top) / tex.Height), rot, flip);
                     } else {
                         tex.Draw(pos, origin, color, scale, rot, flip);
                     }
