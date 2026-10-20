@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>celeste43-patcher</AssemblyName>
+    <RootNamespace>Celeste43</RootNamespace>
+    <!-- the wasm project and the helper project have their own sources -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8625;CS8765</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="PatchApi.cs" />
+    <Compile Include="Program.cs" />
+    <!-- the verifier ships inside the patcher so every output is gated on it -->
+    <Compile Include="../verify/*.cs" Link="verify/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="helper/Fit43.dll" LogicalName="Fit43.dll" />
+  </ItemGroup>
+
+</Project>

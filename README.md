@@ -4,6 +4,8 @@
 
 CelesteFit is an [Everest](https://everestapi.github.io/) mod that expands Celeste's vertical view so a 4:3 (or any taller-than-16:9) display is filled without stretching, letterboxing or cropping. It is a port of the 4:3 patching work in [Celeste Fit](https://github.com/mikumaker/Celeste-Fit), which targets the Android runtime, re-implemented as runtime IL hooks so it works with Steam, cloud saves and other Everest mods.
 
+**No Everest? [Patch your Celeste.exe in your browser.](https://jevonlipsey.github.io/celeste-43aspect/)** The web patcher applies the same changes directly to your own `Celeste.exe` (FNA 1.4.0.0). It runs entirely on your device, so nothing is uploaded and no game code is distributed. This is the route for Android handhelds (DroidDeck, GameNative, Winlator) where Everest is impractical.
+
 ## What changes
 
 - **Taller gameplay buffer.** The internal view becomes 320×240 instead of 320×180 (a 1920×1440 UI space). The world is still drawn 1:1 and scaled uniformly to the display, so pixels stay square.

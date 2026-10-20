@@ -1,5 +1,13 @@
 # Changelog
 
+## Web patcher
+
+A browser patcher for players without Everest, at <https://jevonlipsey.github.io/celeste-43aspect/>. It rewrites the player's own vanilla `Celeste.exe` with the same changes as the mod. The code is Mono.Cecil compiled to .NET WebAssembly, so the file never leaves the device.
+
+- `patcher/` is the static port of the mod's hooks. `orig_*` targets map to the vanilla methods, and the Everest-only types and probes are dropped. The runtime half (`patcher/helper/Fit43.cs`) is cloned into the exe as `Celeste.Fit43`, so the patched game stays adaptive: 4:3 on a 4:3 screen, unchanged on 16:9.
+- `verify/` gates every output. The checks cover branch targets, stack balance, an import allowlist with no CoreLib, and the expected call count for each of the 125 rewritten methods. An unrecognised build, an Everest install or an already patched file is refused rather than half patched.
+- `web/` holds the page, which shares one design with the chefrpg and spelunky2 patchers. `tools/build_web.sh` builds it and `.github/workflows/pages.yml` deploys it. `web/test/parity.mjs` checks that browser output is byte-identical to the CLI's.
+
 ## 1.0.1
 
 Everything found after 1.0.0 shipped: the seam in the ascend scenes, backdrops and overlays that stopped short of the bottom edge, and a constant pass that was silently doing nothing.

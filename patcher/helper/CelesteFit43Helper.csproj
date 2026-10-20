@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- net452 so every import resolves to the game's own mscorlib and FNA. the patcher clones
+         Fit43 into Celeste.exe; the built dll is committed next to this file and embedded. -->
+    <PropertyGroup>
+        <TargetFramework>net452</TargetFramework>
+        <AssemblyName>Fit43</AssemblyName>
+        <RootNamespace>Celeste</RootNamespace>
+        <LangVersion>7.3</LangVersion>
+        <Optimize>true</Optimize>
+        <DebugType>none</DebugType>
+        <Deterministic>true</Deterministic>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Fit43.cs" />
+        <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="Celeste">
+            <HintPath>..\..\libs\Celeste.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="FNA">
+            <HintPath>..\..\libs\FNA.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>
