@@ -9,7 +9,7 @@ CelesteFit is an [Everest](https://everestapi.github.io/) mod that expands Celes
 ## What changes
 
 - **Taller gameplay buffer.** The internal view becomes 320×240 instead of 320×180 (a 1920×1440 UI space). The world is still drawn 1:1 and scaled uniformly to the display, so pixels stay square.
-- **Camera anchoring.** Room bottoms and Madeline stay anchored to the bottom edge while the extra vertical space is revealed above, including during cutscene zooms.
+- **Camera anchoring.** Room bottoms and Madeline stay anchored to the bottom edge while the extra vertical space is revealed above.
 - **Clipping that agrees with the screen.** The gameplay camera's viewport is grown to match the world buffer. Everything that culls against `Camera.Top`/`Camera.Bottom` — tiles, animated tiles, ice overlays, dream blocks, lightning bloom, `IsInCamera` — now covers the full visible area instead of stopping 25% up the screen.
 - **UI and menus.** The hires UI buffers (HUD, menus, wipes, full-screen dimming rects) are allocated from the measured screen height instead of a hardcoded 1080.
 - **Backdrops and effects.** Parallax layers, dust edges, the title screen mountain vignette and every wipe (curtain, angled, fall, doors, dream, wind, mountain) cover the full vertical extent.
@@ -32,6 +32,16 @@ On an ARM handheld that runs Celeste through Steam + Proton, Everest needs a pat
 
 Saves, Steam Cloud and achievements are untouched. To uninstall, delete the mod from the Everest mod list (or the zip from `Mods/`).
 
+### Without Everest: the web patcher
+
+For Android handhelds (DroidDeck, GameNative, Winlator) or anyone who'd rather not install a mod loader:
+
+1. Open the **[Celeste 4:3 Patcher](https://jevonlipsey.github.io/celeste-43aspect/)** and choose the `Celeste.exe` from your game folder (FNA 1.4.0.0; on Steam, Properties → Betas → `beta 1.3.3.0`). The page lists where the file lives on each platform.
+2. Download the patched `Celeste.exe`. Your file is patched in the browser and never uploaded.
+3. Rename your original to `Celeste.exe.bak` and put the patched one in its place.
+
+Steam's "Verify integrity" and game updates restore the original, so re-patch after either. To uninstall, restore the `.bak`. The web patcher refuses a `Celeste.exe` that already has Everest installed; use the mod above for that.
+
 ## Known limitations
 
 - The expanded view is meant for displays taller than 16:9. On a 16:9 or wider display the mod is a no-op (`GameHeight` stays 180 and nothing is patched).
@@ -49,6 +59,9 @@ Saves, Steam Cloud and achievements are untouched. To uninstall, delete the mod 
 | `tools/mdinfo`               | the Mono/IL inspector used to find every hook point             |
 | `docs/PORTING-NOTES.md`      | how the port works and why each patch exists                    |
 | `docs/HANDHELD-NOTES.md`     | running this under Steam + Proton on an ARM64 handheld          |
+| `patcher/`                   | the web patcher's core: the mod's hooks as a static Cecil rewrite of `Celeste.exe`; `patcher/helper/` is the runtime half cloned into the exe |
+| `verify/`                    | the checks every patched exe must pass before it is handed back |
+| `web/`                       | the patcher page, its .NET WebAssembly build and browser tests; `tools/build_web.sh` builds it and `.github/workflows/pages.yml` deploys it |
 
 ## Credits and license
 
