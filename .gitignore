@@ -38,3 +38,6 @@ patcher/obj/
 patcher/helper/bin/
 patcher/helper/obj/
 orig/
+
+# local agent notes
+CLAUDE.local.md
